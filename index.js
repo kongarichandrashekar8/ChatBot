@@ -1,4 +1,5 @@
-var express = require('express')
+var express = require('express') 
+var nodemailer = require('nodemailer');
 const { WebhookClient, Payload} = require("dialogflow-fulfillment")
 var randomstring = require("randomstring")
 var app = express()
@@ -20,22 +21,30 @@ app.post("/dialogflow", express.json(), (req, res) => {
     intentMap.set("Issue Details", issue)
     intentMap.set("Issue", issueRegister)
     intentMap.set("Check Status", checkStatus)
+    
+    intentMap.set("End Of Conversation", endOfConversation)
     agent.handleRequest(intentMap)
 })
 app.listen(1000, () => {
     console.log('Listening at port number 1000')
 })
+
+var accountnumber;
+var result;
 async function getUsername(agent) {
-    var accountnumber = agent.parameters.accountnumber
+    accountnumber = agent.parameters.accountnumber
     const client = new MongoClient(url, { useUnifiedTopology: true })
     await client.connect()
-    var result = await client.db(dbName).collection('User_details').findOne({"accountnumber": Number.parseInt(accountnumber)})
+    result = await client.db(dbName).collection('User_details').findOne({"StudentId": Number.parseInt(accountnumber)})
     if(result == null){
-        agent.setFollowupEvent('RegisterTheIssue')
-        agent.add('')
+        
+        agent.add('Invalid id,please enter correct number')
+        //agent.setFollowupEvent('RegisterTheIssue')
     }
     else{
-        await agent.add('Hello ' + result.username + ', Enter your complaint.')
+        
+        await agent.add('Hello ' + result.StudentName + ', how can I help you')
+        
     }
 }
 async function issue(agent) {
@@ -44,8 +53,8 @@ async function issue(agent) {
             [
                 {
                     "type": "list",
-                    "title": "Internet Down",
-                    "subtitle": "Enter '1' for Internet Down",
+                    "title": "Placement",
+                    "subtitle": "Enter '1' for Placement",
                     "event": {
                         "name": "",
                         "languageCode": "",
@@ -57,8 +66,8 @@ async function issue(agent) {
                 },
                 {
                     "type": "list",
-                    "title": "Slow Internet",
-                    "subtitle": "Enter '2' for Slow Internet",
+                    "title": "Fee",
+                    "subtitle": "Enter '2' for Fee",
                     "event": {
                         "name": "",
                         "languageCode": "",
@@ -70,8 +79,8 @@ async function issue(agent) {
                 },
                 {
                     "type": "list",
-                    "title": "Buffering Problem",
-                    "subtitle": "Enter '3' for Buffering Problem",
+                    "title": "library",
+                    "subtitle": "Enter '3' for library",
                     "event": {
                         "name": "",
                         "languageCode": "",
@@ -80,8 +89,8 @@ async function issue(agent) {
                 },
                 {
                     "type": "list",
-                    "title": "No Connectivity",
-                    "subtitle": "Enter '4' for No Connectivity",
+                    "title": "Other",
+                    "subtitle": "Enter '4' for Other",
                     "event": {
                         "name": "",
                         "languageCode": "",
@@ -93,10 +102,30 @@ async function issue(agent) {
     }
     agent.add(new Payload(agent.UNSPECIFIED, payLoadData, {sendAsMessage: true, rawPayload: true}))
 }
+
+
+
+
+var transporter = nodemailer.createTransport({
+  host:"smtp.gmail.com",
+  port:587,
+  secure:false,
+  service: 'Gmail',
+  auth: {
+    user: 'kchandrashekar2662@gmail.com',
+    pass: 'k9010912341'
+  },
+  connectionTimeout: 5*60*1000,
+});
+
+
+
+
+
 async function issueRegister(agent) {
     var choice = Number.parseInt(agent.parameters.choice)
     if(choice >= 1 && choice <= 4){
-        var issues = {1: "Internet Down", 2: "Slow Internet", 3: "Buffering problem", 4: "No connectivity"}
+        var issues = {1: "Placement", 2: "Fee", 3: "library", 4: "Other"}
         var ticket = randomstring.generate(6)
         const client = new MongoClient(url, { useUnifiedTopology: true })
         await client.connect()
@@ -112,7 +141,7 @@ async function issueRegister(agent) {
             }
         })
         var result = await client.db(dbName).collection('Issue_details').insertOne({
-            "accountnumber": Number.parseInt(accountnumber),
+            "StudentId": Number.parseInt(accountnumber),
             "status": "pending",
             "issue": issues[agent.parameters.choice],
             "time": new Date().toLocaleTimeString(),
@@ -123,6 +152,22 @@ async function issueRegister(agent) {
         agent.add('Your complaint "' + issues[agent.parameters.choice] + '" has been registered with us. Here is the trouble ticket : ' + ticket + ".")
         agent.add("Keep this ticket for further reference.")
         agent.add("Your issue will be resolved in 10 - 12 hours.")
+
+
+        var mailOptions = {
+            from: 'kchandrashekar2662@gmail.com',
+            to: 'kongarichandrashekar8@gmail.com',
+            subject: 'Your Trouble Ticket',
+            text: 'Your trouble ticket id '+ticket.troubleticket+" "+'Issue Type:'+ticket.issue
+          };
+
+        transporter.sendMail(mailOptions, function(error, info){
+            if (error) {
+              console.log(error);
+            } else {
+              console.log('Email sent: ' + info.response);
+            }
+          });
     }
     else{
         agent.add("Wrong choice. Complaint not registered.")
@@ -131,12 +176,13 @@ async function issueRegister(agent) {
 async function checkStatus(agent) {
     const client = new MongoClient(url, { useUnifiedTopology: true })
     await client.connect()
-    var result = await client.db(dbName).collection('Issue_details').findOne({"accountnumber": Number.parseInt(agent.parameters.accountnumber),"troubleticket": agent.parameters.troubleticket})
-    if(result == null){
-        agent.add('Check the details you have entered.')
+    var ticket = await client.db(dbName).collection('Issue_details').findOne({"StudentId": result.accountnumber,"troubleticket": agent.parameters.troubleticket})
+    
+    if(ticket == null){
+        agent.add('Sorry please the Check the details you have entered.')
     }
     else{
-        var status = result.status
+        var status = ticket.status
         if(status == 'pending'){
             // agent.add('Your complaint is ' + status + ". Your issue will be resolved in 5 - 6 hours.")
             agent.add('Your complaint is ' + status + ".")
@@ -147,3 +193,21 @@ async function checkStatus(agent) {
         }
     }
 }
+
+
+async function endOfConversation(agent){
+    
+    if(result == null){
+        agent.add('Check the details you have entered.')
+    }
+    else{
+        var name = result.StudentName
+        agent.add('Thank you '+name+' have a nice day')
+    }
+}
+
+
+
+
+
+
